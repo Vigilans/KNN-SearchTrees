@@ -1,6 +1,10 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 module Data.Point where
+
+import Data.List
+import Data.Metric
 
 -- A d-dimensional space with d axes.
 class DimensionSpace a where
@@ -8,8 +12,6 @@ class DimensionSpace a where
     dimension :: a -> Int
     -- get all available axes.
     axes :: a -> [a]
-    -- get next axis in rolling pattern.
-    nextAxis :: a -> a
     -- get the base axis.
     baseAxis :: a -> a
     baseAxis = head . axes
@@ -26,14 +28,34 @@ class (DimensionSpace a, Coordinate c) => Point p a c | p -> a, p -> c where
     -- gets the Point's (axis, coordinate) pairs as lists
     toList :: p -> [(a, c)]
 
--- avg xs = sum xs / genericLength xs
--- var xs = foldl (\v x -> v + (x - ax)^2) 0.0 xs / genericLength xs where ax = avg xs
+-- Vector space metrics
+minkowskiMetric :: (Point p a Double) => Double -> p -> p -> Double
+minkowskiMetric p a b =
+    let diff = uncurry (-) <$> zip (snd <$> toList a) (snd <$> toList b)
+        norm = (**p) . abs <$> diff
+    in  (sum norm) ** (1/p)
 
--- data KdSpace = KdSpace Int Int
--- instance DimensionSpace KdSpace where
---     dimension (KdSpace d _) = d
---     axes (KdSpace d _) = KdSpace d <$> [0..d-1]
---     axes undefined = KdSpace (-1) <$> [0..]
+manhattanMetric :: (Point p a Double) => p -> p -> Double
+manhattanMetric = minkowskiMetric 1.0
 
+euclideanMetric :: (Point p a Double) => p -> p -> Double
+euclideanMetric = minkowskiMetric 2.0
 
--- data Vector a c = Vector a c
+-- Vector3d Definition
+
+newtype Space3d = Space3d Int deriving (Eq, Ord, Show, Read)
+instance DimensionSpace Space3d where
+    dimension _ = 3
+    axes _ = Space3d <$> [0, 1, 2]
+
+instance Coordinate Double where
+    average  xs = sum xs / genericLength xs
+    variance xs = foldl (\v x -> v + (x - ax)^2) 0.0 xs / genericLength xs where ax = average xs
+
+data Vector3d = Vector3d (Double, Double, Double) deriving (Eq, Ord, Show, Read)
+instance Point Vector3d Space3d Double where
+    coord (Space3d i) (Vector3d (x, y, z)) = [x, y, z] !! i
+    toList (Vector3d (x, y, z)) = zip (Space3d <$> [0, 1, 2]) [x, y, z]
+
+instance Metric Vector3d where
+    distance = euclideanMetric

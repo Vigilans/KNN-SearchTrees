@@ -1,3 +1,4 @@
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Data.NNS where
 
@@ -7,13 +8,14 @@ import Data.Maybe
 import qualified Data.Heap as Q
 
 class Searcher s where
-    kNearestNeighbors :: forall p v. (Metric p) => s p v -> Int -> p -> [(p, v)]
+    kNearestNeighbors :: (Metric p) => s p v -> Int -> p -> [(p, v)]
     -- nearNeighbors ::  (Metric p) => s p v -> Double -> p -> [(p, v)]
 
 -- Brute force method with max k heap
 newtype BruteForce p v = BruteForce [(p, v)]
 
 instance Searcher BruteForce where
+    kNearestNeighbors :: (Metric p) => BruteForce p v -> Int -> p -> [(p, v)]
     kNearestNeighbors (BruteForce examples) k sample =
         let distExamples = map (\(p, v) -> (distance p sample, (p, v))) examples
         in snd <$> kMinsByHeap k distExamples
@@ -25,5 +27,6 @@ kMinsByHeap k prioVals = Q.toAscList maxKHeap where
     maxKHeap = foldl (\heap (prio, val) ->
             let (maxPrio, _) = fromJust $ Q.viewHead heap
             in if prio >= maxPrio then heap
-                else Q.insert (prio, val) (Q.drop 1 heap)
+               else Q.insert (prio, val) (Q.drop 1 heap)
         ) initHeap restList
+
