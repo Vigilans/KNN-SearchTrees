@@ -1,29 +1,29 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Data.NNS where
 
 import Data.Point
 import Data.Metric
 import Data.Maybe
-import Data.Heap (MaxPrioHeap, insert, viewHead)
-import qualified Data.Heap as Heap
+import qualified Data.Heap as Q
 
 class Searcher s where
-    kNearestNeighbors :: (Point p a c, Metric p) => s -> Int -> p -> [p]
-    -- nearNeighbors ::  (Point p a c, Metric p) => s -> Double -> p -> [p]
+    kNearestNeighbors :: forall p v. (Metric p) => s p v -> Int -> p -> [(p, v)]
+    -- nearNeighbors ::  (Metric p) => s p v -> Double -> p -> [(p, v)]
 
 -- Brute force method with max k heap
--- newtype BruteForce p = BruteForce [p]
--- instance Searcher (BruteForce p) where
---     kNearestNeighbors (BruteForce examples) k sample =
---         let distExamples = map (\e -> (distance e sample, e)) examples
---             (initList, restList) = splitAt k distExamples
---             initHeap = Heap.fromList initList :: MaxPrioHeap Double p
---             minKHeap = foldl (\heap (dist, example) ->
---                 let maxDist = fromJust $ viewHead heap
---                 in if dist >= maxDist then heap
---                    else insert (dist example) (drop 1 heap)
---                 ) initHeap restList
---         in [sample]
+newtype BruteForce p v = BruteForce [(p, v)]
+
+instance Searcher BruteForce where
+    kNearestNeighbors (BruteForce examples) k sample =
+        let distExamples = map (\(p, v) -> (distance p sample, (p, v))) examples
+        in snd <$> kMinsByHeap k distExamples
+
+kMinsByHeap :: forall prio val. (Ord prio) => Int -> [(prio, val)] -> [(prio, val)]
+kMinsByHeap k prioVals = Q.toAscList maxKHeap where
+    (initList, restList) = splitAt k prioVals
+    initHeap = Q.fromList initList :: Q.MaxPrioHeap prio val
+    maxKHeap = foldl (\heap (prio, val) ->
+            let (maxPrio, _) = fromJust $ Q.viewHead heap
+            in if prio >= maxPrio then heap
+                else Q.insert (prio, val) (Q.drop 1 heap)
+        ) initHeap restList
