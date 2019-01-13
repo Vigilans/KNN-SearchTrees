@@ -70,6 +70,45 @@ nodeDist p q = distance p (fst q)
 setDist :: (Metric p) => p -> CoverSet p v -> Double
 setDist p = minimum . map (distance p . fst)
 
+-- -- Batch insert construction
+-- fromList :: (Metric p) => [(p, v)] -> CoverTree p v
+-- fromList pvs = 
+--     let batchConstruct p (near, far) i
+--             | S.null near = (p, S.empty)
+--             | otherwise = 
+
+-- Create a cover tree with a 
+singleton :: (Metric p) => Int -> (p, v) -> CoverTree p v
+singleton maxLev (p, v) = CoverTree {
+    levelRange  = (maxLev, maxLev),
+    coverLevels = IM.singleton maxLev $ M.singleton p [(p, v)]
+}
+
+-- Insert a child to level-i node, possibly updating minLevel
+insertChild :: (Metric p) => CoverTree p v -> (Int, CoverNode p v) -> CoverNode p v -> CoverTree p v
+insertChild (CoverTree (minLev, maxLev) levels) (i, (parent, _)) child = CoverTree {
+    levelRange  = (min minLev (i - 1), maxLev),
+    coverLevels = IM.alter (\elem -> case elem of 
+        Nothing -> Just $ M.singleton parent [child]
+        Just cm -> Just $ M.update (\cs -> Just $ child:cs) parent cm
+    ) (i - 1) levels
+}
+
+-- Insert a node into the cover tree in recursive pattern
+insert :: (Metric p, Eq v) => CoverTree p v -> (p, v) -> CoverTree p v
+insert t (p, v) = fromRight (error "insert failed") $ insertRecursive p (rootSet t) (maxLevel t)
+    where insertRecursive p qsI i = 
+            let qs = concat [children t (i, q) | q <- qsI]
+            in if setDist p qs > 2^i then Left "no parent found"
+               else let qsI' = [q | q <- qs, nodeDist p q <= 2^i]
+                    in  if insertRecursive p qsI' (i - 1) == Left "no parent found" && setDist p qsI <= 2^i
+                        then let q = head [q | q <- qsI, nodeDist p q <= 2^i]
+                             in Right $ insertChild t (i, q) (p, v)
+                        else Left "no parent found"
+
+fromList :: (Metric p, Eq v) => Int -> [(p, v)] -> CoverTree p v
+fromList maxLev pvs = foldl insert (singleton maxLev $ head pvs) $ tail pvs 
+
 nearestNeighbor :: (Metric p) => CoverTree p v -> p -> (p, v)
 nearestNeighbor t p = 
     let qsInf  = rootSet t -- positive infinity
