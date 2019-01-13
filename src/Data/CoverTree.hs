@@ -60,3 +60,32 @@ clamp :: (Ord a) => (a, a) -> a -> a
 clamp (left, right) = max left . min right
 
 -- Cover Tree invariants
+
+
+-- distance of a node and a point
+nodeDist :: (Metric p) => p -> CoverNode p v -> Double
+nodeDist p q = distance p (fst q)
+
+-- distance of a node and a set: d(p,Q) = min[q∈Q]{d(p,q)}
+setDist :: (Metric p) => p -> CoverSet p v -> Double
+setDist p = minimum . map (distance p . fst)
+
+nearestNeighbor :: (Metric p) => CoverTree p v -> p -> (p, v)
+nearestNeighbor t p = 
+    let qsInf  = rootSet t -- positive infinity
+        qsInf' = foldl (\qsI i -> -- negative infinity
+                let qs = concat [children t (i, q) | q <- qsI]
+                in [q | q <- qs, distance p (fst q) <= setDist p qs + 2^i]
+            ) qsInf [maxLevel t..minLevel t] 
+    in minimumBy (comparing $ (distance p . fst)) qsInf'
+
+instance Searcher CoverTree where
+    kNearestNeighbors t k p = 
+        let qsInf  = rootSet t -- positive infinity
+            qsInf' = foldl (\qsI i -> -- negative infinity
+                    let ds = [(distance p (fst q), ()) | q <- qsI]
+                        dK = fst $ last $ kMinsByHeap k ds -- get the kth nearest distance
+                        qs = concat [children t (i, q) | q <- qsI]
+                    in [q | q <- qs, distance p (fst q) <= dK + 2^i]
+                ) qsInf [maxLevel t..minLevel t] 
+        in map snd $ kMinsByHeap k $ [(distance p (fst q), q) | q <- qsInf']
