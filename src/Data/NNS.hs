@@ -8,14 +8,14 @@ import Data.Maybe
 import qualified Data.Heap as Q
 
 class Searcher s where
-    kNearestNeighbors :: (Metric p) => s p v -> Int -> p -> [(p, v)]
+    kNearestNeighbors :: (Metric p, Show p, Show v) => s p v -> Int -> p -> [(p, v)]
     -- nearNeighbors ::  (Metric p) => s p v -> Double -> p -> [(p, v)]
 
 -- Brute force method with max k heap
 newtype BruteForce p v = BruteForce [(p, v)]
 
 instance Searcher BruteForce where
-    kNearestNeighbors :: (Metric p) => BruteForce p v -> Int -> p -> [(p, v)]
+    kNearestNeighbors :: (Metric p, Show p, Show v) => BruteForce p v -> Int -> p -> [(p, v)]
     kNearestNeighbors (BruteForce examples) k sample =
         let distExamples = map (\(p, v) -> (distance p sample, (p, v))) examples
         in snd <$> kMinsByHeap k distExamples

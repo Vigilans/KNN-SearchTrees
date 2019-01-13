@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 module Data.CoverTree where
 
 import Data.Metric
@@ -10,6 +11,7 @@ import Data.List hiding (insert)
 import qualified Data.Set as S
 import qualified Data.Map as M
 import qualified Data.IntMap as IM
+import Debug.Trace
 
 type CoverNode p v = (p, v) 
 
@@ -59,9 +61,6 @@ root = head . rootSet
 clamp :: (Ord a) => (a, a) -> a -> a
 clamp (left, right) = max left . min right
 
--- Cover Tree invariants
-
-
 -- distance of a node and a point
 nodeDist :: (Metric p) => p -> CoverNode p v -> Double
 nodeDist p q = distance p (fst q)
@@ -70,6 +69,57 @@ nodeDist p q = distance p (fst q)
 setDist :: (Metric p) => p -> CoverSet p v -> Double
 setDist p = minimum . map (distance p . fst)
 
+-- Cover Tree invariants
+
+-- Create a cover tree with a single value
+singleton :: (Metric p) => Int -> (p, v) -> CoverTree p v
+singleton maxLev (p, v) = uncoalesce (maxLev - 1) (p, v) CoverTree {
+    levelRange  = (maxLev, maxLev),
+    coverLevels = IM.singleton maxLev $ M.singleton p [(p, v)]
+}
+
+-- Extend the node of its self-child to i-th level
+uncoalesce :: (Metric p) => Int -> CoverNode p v -> CoverTree p v -> CoverTree p v
+uncoalesce i (p, v) (CoverTree (minLev, maxLev) levels) = CoverTree {
+    levelRange  = (min minLev i, maxLev),
+    coverLevels = 
+        let foldrWhile cl j
+                | j >= maxLev = cl
+                | IM.notMember j cl = foldrWhile (IM.insert j (M.singleton p [(p, v)]) cl) (j + 1)
+                | M.notMember  p cm = foldrWhile (IM.insert j (M.insert p [(p, v)] cm) cl) (j + 1)
+                | otherwise = cl
+                where cm = (IM.!) cl j
+        in foldrWhile levels i
+}
+
+-- Insert a child to level-i node, possibly updating minLevel
+-- It ensures that coverLevels ranging from (minLev, maxLev) exists.
+insertChild :: (Metric p) => CoverTree p v -> (Int, CoverNode p v) -> CoverNode p v -> CoverTree p v
+insertChild t (i, (p, v)) child = 
+    let (CoverTree levelRange levels) = uncoalesce (i - 1) (p, v) t 
+    in CoverTree {
+        levelRange  = levelRange,
+        coverLevels = IM.update (Just . M.update (\cs -> Just $ child:cs) p) (i - 1) levels
+    }
+
+traceT str stmt = trace (str ++ show stmt) stmt
+
+-- Insert a node into the cover tree in recursive pattern
+insert :: (Metric p, Eq v) => CoverTree p v -> (p, v) -> CoverTree p v
+insert t (p, v) = snd $ insert' p (rootSet t) (maxLevel t)
+    where insert' p qsI i
+            | setDist p qs > 2^i = (False, t)
+            | not parentFound && setDist p qsI <= 2^i = 
+                let q = head [q | q <- qsI, nodeDist p q <= 2^i] 
+                in (True, insertChild t (i, q) (p, v))
+            | otherwise = (parentFound, newTree)
+            where qs = concat [children t (i, q) | q <- qsI]
+                  qsI' = [q | q <- qs, nodeDist p q <= 2^i]
+                  (parentFound, newTree) = insert' p qsI' (i - 1)
+
+fromList :: (Metric p, Eq v, Show p, Show v) => Int -> [(p, v)] -> CoverTree p v
+fromList maxLev pvs = foldl insert (singleton maxLev $ head pvs) $ tail pvs 
+
 -- -- Batch insert construction
 -- fromList :: (Metric p) => [(p, v)] -> CoverTree p v
 -- fromList pvs = 
@@ -77,48 +127,17 @@ setDist p = minimum . map (distance p . fst)
 --             | S.null near = (p, S.empty)
 --             | otherwise = 
 
--- Create a cover tree with a 
-singleton :: (Metric p) => Int -> (p, v) -> CoverTree p v
-singleton maxLev (p, v) = CoverTree {
-    levelRange  = (maxLev, maxLev),
-    coverLevels = IM.singleton maxLev $ M.singleton p [(p, v)]
-}
-
--- Insert a child to level-i node, possibly updating minLevel
-insertChild :: (Metric p) => CoverTree p v -> (Int, CoverNode p v) -> CoverNode p v -> CoverTree p v
-insertChild (CoverTree (minLev, maxLev) levels) (i, (parent, _)) child = CoverTree {
-    levelRange  = (min minLev (i - 1), maxLev),
-    coverLevels = IM.alter (\elem -> case elem of 
-        Nothing -> Just $ M.singleton parent [child]
-        Just cm -> Just $ M.update (\cs -> Just $ child:cs) parent cm
-    ) (i - 1) levels
-}
-
--- Insert a node into the cover tree in recursive pattern
-insert :: (Metric p, Eq v) => CoverTree p v -> (p, v) -> CoverTree p v
-insert t (p, v) = fromRight (error "insert failed") $ insertRecursive p (rootSet t) (maxLevel t)
-    where insertRecursive p qsI i = 
-            let qs = concat [children t (i, q) | q <- qsI]
-            in if setDist p qs > 2^i then Left "no parent found"
-               else let qsI' = [q | q <- qs, nodeDist p q <= 2^i]
-                    in  if insertRecursive p qsI' (i - 1) == Left "no parent found" && setDist p qsI <= 2^i
-                        then let q = head [q | q <- qsI, nodeDist p q <= 2^i]
-                             in Right $ insertChild t (i, q) (p, v)
-                        else Left "no parent found"
-
-fromList :: (Metric p, Eq v) => Int -> [(p, v)] -> CoverTree p v
-fromList maxLev pvs = foldl insert (singleton maxLev $ head pvs) $ tail pvs 
-
 nearestNeighbor :: (Metric p) => CoverTree p v -> p -> (p, v)
 nearestNeighbor t p = 
     let qsInf  = rootSet t -- positive infinity
         qsInf' = foldl (\qsI i -> -- negative infinity
                 let qs = concat [children t (i, q) | q <- qsI]
                 in [q | q <- qs, distance p (fst q) <= setDist p qs + 2^i]
-            ) qsInf [maxLevel t..minLevel t] 
+            ) qsInf [maxLevel t,maxLevel t - 1..minLevel t] 
     in minimumBy (comparing $ (distance p . fst)) qsInf'
 
 instance Searcher CoverTree where
+    kNearestNeighbors :: (Metric p, Show p, Show v) => CoverTree p v -> Int -> p -> [(p, v)]
     kNearestNeighbors t k p = 
         let qsInf  = rootSet t -- positive infinity
             qsInf' = foldl (\qsI i -> -- negative infinity
@@ -126,5 +145,5 @@ instance Searcher CoverTree where
                         dK = fst $ last $ kMinsByHeap k ds -- get the kth nearest distance
                         qs = concat [children t (i, q) | q <- qsI]
                     in [q | q <- qs, distance p (fst q) <= dK + 2^i]
-                ) qsInf [maxLevel t..minLevel t] 
+                ) qsInf [maxLevel t, maxLevel t - 1..minLevel t] 
         in map snd $ kMinsByHeap k $ [(distance p (fst q), q) | q <- qsInf']
