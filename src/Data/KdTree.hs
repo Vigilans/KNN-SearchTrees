@@ -58,24 +58,24 @@ selectAxis ps = fst $ maximumBy (comparing snd) vars
     where vars = map (\(axis, cs) -> (axis, variance cs)) $ coordsByAxis ps
 
 -- search methods
-instance (Point p a c, Show (p a c), Show v) => Searcher (KdTree a (p a c) v) where
+instance (Point p a c) => Searcher (KdTree a (p a c) v) where
     type Pt (KdTree a (p a c) v) = p a c
     type Val (KdTree a (p a c) v) = v
 
     kNearestNeighbors :: (Metric (p a c)) => Int -> p a c -> KdTree a (p a c) v -> [(p a c, v)]
     kNearestNeighbors k query (KdTree _ root) =
-        let serachByNode candidates Nil = candidates
+        let searchByNode candidates Nil = candidates
             searchByNode candidates (KdNode (p, v) axis left right)
                 | queryCoord <= pointCoord = searchBySubTrees newCands left right 
-                | otherwise = searchBySubTrees newCands right left 
+                | otherwise = searchBySubTrees newCands right left
                 where 
-                    newCands = trace (show candidates) $ ((distance p query, (p, v)) : candidates)
+                    newCands = (distance p query, (p, v)):candidates
                     queryCoord = coord axis query
                     pointCoord = coord axis p
-                    searchBySubTrees candidates posSide negSide
+                    searchBySubTrees candidates' posSide negSide
                         | length newCands < k || inCircle = searchByNode newCands negSide
                         | otherwise = newCands
                         where 
-                            newCands = searchByNode candidates posSide
-                            inCircle = absDiff queryCoord pointCoord < (fst $ head newCands) 
+                            newCands = searchByNode candidates' posSide
+                            inCircle = absDiff queryCoord pointCoord < fst (head newCands) 
         in map snd $ kMinsByHeap k $ searchByNode [] root
