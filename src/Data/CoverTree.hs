@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 module Data.CoverTree where
@@ -127,23 +128,26 @@ fromList maxLev pvs = foldl insert (singleton maxLev $ head pvs) $ tail pvs
 --             | S.null near = (p, S.empty)
 --             | otherwise = 
 
-nearestNeighbor :: (Metric p) => CoverTree p v -> p -> (p, v)
-nearestNeighbor t p = 
-    let qsInf  = rootSet t -- positive infinity
-        qsInf' = foldl (\qsI i -> -- negative infinity
-                let qs = concat [children t (i, q) | q <- qsI]
-                in [q | q <- qs, distance p (fst q) <= setDist p qs + 2^i]
-            ) qsInf [maxLevel t,maxLevel t - 1..minLevel t] 
-    in minimumBy (comparing $ (distance p . fst)) qsInf'
+instance Searcher (CoverTree p v) where
+    type Pt (CoverTree p v) = p
+    type Val (CoverTree p v) = v
+    
+    nearestNeighbor :: (Metric p) => p -> CoverTree p v -> (p, v)
+    nearestNeighbor p t = 
+        let qsInf  = rootSet t -- positive infinity
+            qsInf' = foldl (\qsI i -> -- negative infinity
+                    let qs = concat [children t (i, q) | q <- qsI]
+                    in [q | q <- qs, distance p (fst q) <= setDist p qs + 2^i]
+                ) qsInf [maxLevel t,maxLevel t - 1..minLevel t] 
+        in minimumBy (comparing $ (distance p . fst)) qsInf'
 
-instance Searcher CoverTree where
-    kNearestNeighbors :: (Metric p, Show p, Show v) => CoverTree p v -> Int -> p -> [(p, v)]
-    kNearestNeighbors t k p = 
+    kNearestNeighbors :: (Metric p) => Int -> p -> CoverTree p v -> [(p, v)]
+    kNearestNeighbors k p t = 
         let qsInf  = rootSet t -- positive infinity
             qsInf' = foldl (\qsI i -> -- negative infinity
                     let ds = [(distance p (fst q), ()) | q <- qsI]
                         dK = fst $ last $ kMinsByHeap k ds -- get the kth nearest distance
                         qs = concat [children t (i, q) | q <- qsI]
                     in [q | q <- qs, distance p (fst q) <= dK + 2^i]
-                ) qsInf [maxLevel t, maxLevel t - 1..minLevel t] 
+                ) qsInf [maxLevel t,maxLevel t - 1..minLevel t] 
         in map snd $ kMinsByHeap k $ [(distance p (fst q), q) | q <- qsInf']

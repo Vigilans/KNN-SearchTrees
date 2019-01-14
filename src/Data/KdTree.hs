@@ -1,7 +1,8 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 module Data.KdTree where
 
@@ -27,7 +28,7 @@ data KdTree a p v = KdTree {
 } deriving (Show, Read)
 
 -- construct a balanced KdTree from a list
-fromList :: (Point p a c, Metric p) => [(p, v)] -> KdTree a p v
+fromList :: (Point p a c, Metric (p a c)) => [(p a c, v)] -> KdTree a (p a c) v
 fromList pvs = KdTree (length pvs) (buildNodes pvs)
     where buildNodes [] = Nil
           buildNodes pvs =
@@ -46,30 +47,35 @@ medianPartition cmp xs = kthBiggest (length xs `div` 2) cmp xs
                   n = length left
 
 -- arrange points in such a way that all coords in same axis in one list
-coordsByAxis :: (Point p a c) => [p] -> [(a, [c])]
+coordsByAxis :: (Point p a c) => [p a c] -> [(a, [c])]
 coordsByAxis = foldl zipPoint initial . map toList
     where zipPoint = zipWith (\(_, cs) (axis, c) -> (axis, c:cs))
           initial  = zip (axes (undefined :: a)) (repeat [])
 
 -- median of the most spread dimension pivoting strategy
-selectAxis :: (Point p a c, Metric p) => [p] -> a
+selectAxis :: (Point p a c, Metric (p a c)) => [p a c] -> a
 selectAxis ps = fst $ maximumBy (comparing snd) vars
     where vars = map (\(axis, cs) -> (axis, variance cs)) $ coordsByAxis ps
 
 -- search methods
--- instance Searcher (KdTree a) where
-kNearestNeighbors :: (Point p a Double, Metric p, Show p, Show a, Show v) => KdTree a p v -> Int -> p -> [(p, v)]
-kNearestNeighbors (KdTree _ root) k query =
-    let serachByNode candidates Nil = candidates
-        searchByNode candidates (KdNode (p, v) axis left right)
-            | queryCoord <= pointCoord = searchBySubTrees newCands left right 
-            | otherwise = searchBySubTrees newCands right left 
-            where newCands = trace (show candidates) $ (distance p query, (p, v)) : candidates
-                  queryCoord = coord axis query
-                  pointCoord = coord axis p
-                  searchBySubTrees candidates posSide negSide
-                      | length newCands < k || inCircle = searchByNode newCands negSide
-                      | otherwise = newCands
-                      where newCands = searchByNode candidates posSide
-                            inCircle = True--abs (queryCoord - pointCoord) < (fst $ head newCands) 
-    in map snd $ kMinsByHeap k $ searchByNode ([] :: [(Double, (p, v))]) root
+instance (Point p a c, Show (p a c), Show v) => Searcher (KdTree a (p a c) v) where
+    type Pt (KdTree a (p a c) v) = p a c
+    type Val (KdTree a (p a c) v) = v
+
+    kNearestNeighbors :: (Metric (p a c)) => Int -> p a c -> KdTree a (p a c) v -> [(p a c, v)]
+    kNearestNeighbors k query (KdTree _ root) =
+        let serachByNode candidates Nil = candidates
+            searchByNode candidates (KdNode (p, v) axis left right)
+                | queryCoord <= pointCoord = searchBySubTrees newCands left right 
+                | otherwise = searchBySubTrees newCands right left 
+                where 
+                    newCands = trace (show candidates) $ ((distance p query, (p, v)) : candidates)
+                    queryCoord = coord axis query
+                    pointCoord = coord axis p
+                    searchBySubTrees candidates posSide negSide
+                        | length newCands < k || inCircle = searchByNode newCands negSide
+                        | otherwise = newCands
+                        where 
+                            newCands = searchByNode candidates posSide
+                            inCircle = absDiff queryCoord pointCoord < (fst $ head newCands) 
+        in map snd $ kMinsByHeap k $ searchByNode [] root
