@@ -1,22 +1,29 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ConstrainedClassMethods #-}
 module Data.NNS where
 
-import Data.Point
 import Data.Metric
 import Data.Maybe
 import qualified Data.Heap as Q
 
 class Searcher s where
-    kNearestNeighbors :: (Metric p, Show p, Show v) => s p v -> Int -> p -> [(p, v)]
+    type Pt s :: *
+    type Val s :: *
+    kNearestNeighbors :: (Metric (Pt s)) => Int -> s -> Pt s -> [(Pt s, Val s)]
+    nearestNeighbor   :: (Metric (Pt s)) => s -> Pt s -> (Pt s, Val s)
+    nearestNeighbor = (head .) . kNearestNeighbors 1
     -- nearNeighbors ::  (Metric p) => s p v -> Double -> p -> [(p, v)]
 
 -- Brute force method with max k heap
 newtype BruteForce p v = BruteForce [(p, v)]
-
-instance Searcher BruteForce where
-    kNearestNeighbors :: (Metric p, Show p, Show v) => BruteForce p v -> Int -> p -> [(p, v)]
-    kNearestNeighbors (BruteForce examples) k sample =
+instance Searcher (BruteForce p v) where
+    type Pt (BruteForce p v) = p
+    type Val (BruteForce p v) = v
+    kNearestNeighbors :: (Metric p) => Int -> BruteForce p v ->  p -> [(p, v)]
+    kNearestNeighbors k (BruteForce examples) sample =
         let distExamples = map (\(p, v) -> (distance p sample, (p, v))) examples
         in snd <$> kMinsByHeap k distExamples
 
